@@ -3,8 +3,7 @@ import axios from "axios";
 import fs from "fs";
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const HF_KEY = process.env.HF_KEY;
-const CHAT_KEY = process.env.CHAT_KEY;
+const HF_KEY = process.env.HF_KEY;      // نفس المفتاح للدردشة والصور
 
 const client = new Client({
   intents: [
@@ -42,7 +41,7 @@ client.on("messageCreate", async (msg) => {
     });
 
     memory[thread.id] = [
-      { role: "system", content: "أنت مساعد ذكي تتكلم طبيعي." },
+      { role: "system", content: "أنت مساعد ذكي تتكلم عربي طبيعي." },
       { role: "user", content: msg.content }
     ];
 
@@ -72,19 +71,17 @@ client.on("messageCreate", async (msg) => {
 
 async function askChat(messages) {
   const res = await axios.post(
-    "https://api.groq.com/openai/v1/chat/completions",
+    "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2",
     {
-      model: "llama3-70b-8192",
-      messages,
-      temperature: 0.7
+      inputs: messages.map(m => m.content).join("\n")
     },
     {
       headers: {
-        Authorization: `Bearer ${CHAT_KEY}`
+        Authorization: `Bearer ${HF_KEY}`
       }
     }
   );
-  return res.data.choices[0].message.content;
+  return res.data[0].generated_text;
 }
 
 async function generateImage(prompt) {
