@@ -3,7 +3,9 @@ import axios from "axios";
 import fs from "fs";
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const HF_KEY = process.env.HF_KEY;
+const CF_KEY = process.env.CF_KEY;
+const CF_ACC = process.env.CF_ACC;
+const ALLOWED_CHANNEL = process.env.ALLOWED_CHANNEL;
 
 const client = new Client({
   intents: [
@@ -14,19 +16,30 @@ const client = new Client({
 });
 
 const memory = {};
-const MAX_MEMORY = 15;
-const MODELS = [
-  "HuggingFaceH4/zephyr-7b-beta",
-  "mistralai/Mistral-7B-Instruct-v0.2",
-  "meta-llama/Llama-2-7b-chat-hf"
+const cooldown = {};
+const MAX_MEMORY = 20;
+const COOLDOWN_TIME = 4000;
+
+const CHAT_MODELS = [
+  "@cf/meta/llama-3-8b-instruct",
+  "@cf/qwen/qwen1.5-7b-chat",
+  "@cf/mistral/mistral-7b-instruct"
 ];
 
+const IMAGE_MODEL = "@cf/stabilityai/stable-diffusion-xl-base-1.0";
+
 client.on("ready", () => {
-  console.log("AI BOT ONLINE PRO");
+  console.log("AI BOT ONLINE");
 });
 
 client.on("messageCreate", async (msg) => {
   if (msg.author.bot) return;
+  if (!msg.channel.isThread() && msg.channel.id !== ALLOWED_CHANNEL) return;
+
+  const now = Date.now();
+  if (cooldown[msg.author.id] && now - cooldown[msg.author.id] < COOLDOWN_TIME)
+    return;
+  cooldown[msg.author.id] = now;
 
   if (msg.content.startsWith("ارسم")) {
     const prompt = msg.content.replace("ارسم", "").trim();
@@ -34,9 +47,8 @@ client.on("messageCreate", async (msg) => {
       const img = await generateImage(prompt);
       await msg.reply({ files: [img] });
       fs.unlinkSync(img);
-    } catch (e) {
-      logError("IMAGE", e);
-      msg.reply("ERROR IMAGE");
+    } catch {
+      msg.reply("IMAGE ERROR");
     }
     return;
   }
@@ -54,7 +66,6 @@ client.on("messageCreate", async (msg) => {
   await handleChat(msg.channel, msg.content);
 });
 
-// ===== Chat Core =====
 async function handleChat(channel, content) {
   const id = channel.id;
   if (!memory[id]) memory[id] = [];
@@ -64,62 +75,48 @@ async function handleChat(channel, content) {
     memory[id] = memory[id].slice(-MAX_MEMORY);
 
   try {
-    const reply = await askChatSmart(memory[id]);
+    const reply = await askCloudflareChat(memory[id]);
     memory[id].push({ role: "assistant", content: reply });
-    sendLong(channel, reply);
-  } catch (e) {
-    logError("CHAT", e);
-    channel.send("الذكاء الاصطناعي مشغول حالياً");
+    channel.send(reply);
+  } catch {
+    channel.send("CHAT ERROR");
   }
 }
 
-// ===== Smart Chat =====
-async function askChatSmart(messages) {
-  for (const model of MODELS) {
+async function askCloudflareChat(messages) {
+  for (const model of CHAT_MODELS) {
     try {
       const res = await axios.post(
-        `https://api-inference.huggingface.co/models/${model}`,
+        `https://api.cloudflare.com/client/v4/accounts/${CF_ACC}/ai/run/${model}`,
+        { messages },
         {
-          inputs: messages.map(m => m.content).join("\n")
-        },
-        {
-          headers: { Authorization: `Bearer ${HF_KEY}` },
-          timeout: 30000
+          headers: {
+            Authorization: `Bearer ${CF_KEY}`,
+            "Content-Type": "application/json"
+          }
         }
       );
-      return res.data[0].generated_text;
-    } catch (e) {
-      console.log("MODEL FAILED:", model);
-    }
+      return res.data.result.response;
+    } catch {}
   }
-  throw new Error("ALL MODELS DOWN");
+  throw new Error("ALL MODELS FAIL");
 }
 
-// ===== Image =====
 async function generateImage(prompt) {
   const res = await axios.post(
-    "https://api-inference.huggingface.co/models/stabilityai/sdxl",
-    { inputs: prompt },
+    `https://api.cloudflare.com/client/v4/accounts/${CF_ACC}/ai/run/${IMAGE_MODEL}`,
+    { prompt },
     {
-      headers: { Authorization: `Bearer ${HF_KEY}` },
-      responseType: "arraybuffer",
-      timeout: 60000
+      headers: {
+        Authorization: `Bearer ${CF_KEY}`,
+        "Content-Type": "application/json"
+      },
+      responseType: "arraybuffer"
     }
   );
-
-  const fileName = `image_${Date.now()}.png`;
-  fs.writeFileSync(fileName, Buffer.from(res.data));
-  return fileName;
-}
-
-// ===== Utils =====
-function sendLong(channel, text) {
-  const parts = text.match(/[\s\S]{1,1900}/g);
-  for (const p of parts) channel.send(p);
-}
-
-function logError(type, e) {
-  console.log(`${type} ERROR:`, e.response?.data || e.message);
+  const file = `img_${Date.now()}.png`;
+  fs.writeFileSync(file, Buffer.from(res.data));
+  return file;
 }
 
 client.login(DISCORD_TOKEN);
