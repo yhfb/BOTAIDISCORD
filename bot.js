@@ -3,7 +3,7 @@ import axios from "axios";
 import fs from "fs";
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const HF_KEY = process.env.HF_KEY;      // نفس المفتاح للدردشة والصور
+const HF_KEY = process.env.HF_KEY;
 
 const client = new Client({
   intents: [
@@ -28,8 +28,9 @@ client.on("messageCreate", async (msg) => {
       const img = await generateImage(prompt);
       await msg.reply({ files: [img] });
       fs.unlinkSync(img);
-    } catch {
-      msg.reply("ERROR IMAGE");
+    } catch (e) {
+      console.log("IMAGE ERROR (HF_KEY):", e.response?.data || e.message);
+      msg.reply("ERROR IMAGE (HF_KEY)");
     }
     return;
   }
@@ -49,8 +50,9 @@ client.on("messageCreate", async (msg) => {
       const reply = await askChat(memory[thread.id]);
       memory[thread.id].push({ role: "assistant", content: reply });
       thread.send(reply);
-    } catch {
-      thread.send("ERROR CHAT");
+    } catch (e) {
+      console.log("CHAT ERROR (HF_KEY):", e.response?.data || e.message);
+      thread.send("ERROR CHAT (HF_KEY)");
     }
     return;
   }
@@ -64,8 +66,9 @@ client.on("messageCreate", async (msg) => {
     const reply = await askChat(memory[id]);
     memory[id].push({ role: "assistant", content: reply });
     msg.reply(reply);
-  } catch {
-    msg.reply("ERROR CHAT");
+  } catch (e) {
+    console.log("CHAT ERROR (HF_KEY):", e.response?.data || e.message);
+    msg.reply("ERROR CHAT (HF_KEY)");
   }
 });
 
